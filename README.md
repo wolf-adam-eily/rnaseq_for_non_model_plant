@@ -137,3 +137,134 @@ We now press CTRL+X which will ask us if we wish to save, simply type "y" to con
 <pre style="color: silver; background: black;">-bash-4.2$ sbatch sickle.sh</pre>
 
 Notice how the "../../" destination is used to locate the raw reads. "../../" tells the shell to travel back two parent directories, which would be "/UCHC/PublicShare/RNASeq_Workshop/RedSpruce/". Therefore, we see that "../../Reads/Illumina/ambient.fastq" is actually "/UCHC/PublicShare/RNASeq_Workshop/RedSpruce/Reads/Illumina/ambient.fastq". Also notice how there are no parent directories for the output command. This will place the output in the directory in which the script is run, which is "/UCHC/PublicShare/RNASeq_Workshop/RedSpruce/QualityControl/Illumina/ambient.trimmed.fastq".
+
+If we want to see how the quality control has affected our data we can view the standard output file with the following command:
+
+<pre style="color: silver; background: black;">-bash-4.2$ nano sickle*out
+  GNU nano 2.3.1                                                     File: sickle_267830.out                                                                                                                
+
+
+SE input file: ../../Reads/Illumina/ambient.fastq
+
+Total FastQ records: 103531742
+FastQ records kept: 83066649
+FastQ records discarded: 20465093
+
+
+SE input file: ../../Reads/Illumina/cotreated.fastq
+
+Total FastQ records: 101490246
+FastQ records kept: 81173217
+FastQ records discarded: 20317029
+
+
+SE input file: ../../Reads/Illumina/elevated.fastq
+
+Total FastQ records: 97712226
+FastQ records kept: 81595012
+FastQ records discarded: 16117214
+                                                                                             [ Read 21 lines ]
+^G Get Help                       ^O WriteOut                       ^R Read File                      ^Y Prev Page                      ^K Cut Text                       ^C Cur Pos
+^X Exit                           ^J Justify                        ^W Where Is                       ^V Next Page                      ^U UnCut Text                     ^T To Spell
+</pre>
+
+<h2 id="Fourth_Point_Header">Assembling the genome using RNA-Seq reads and Trinity</h2>
+
+Now that we've performed quality control we are ready to assemble our genome using the RNA-Seq reads. We will be using the software <a href="https://github.com/trinityrnaseq/trinityrnaseq/wiki">Trinity</a>. Nearly all genome assembly software operates under the same premise. Consider the following,
+
+Suppose we have the following three reads:
+
+<pre style="color: silver; background: black;"><b>A C G A C G T T T G A G A</b>
+<b>T T G A G A T T A C C T A G</b>
+<b? T T A C C T A G A T T G G T G T A</b></pre>
+
+We notice that the end of each read is the beginning of the next read, so we assemble them as one sequence by matching the overlaps:
+
+<pre style="color: silver; background: black;"><b>A C G A C G T [T T G A G A] [T T A C C T A] G A T T G G T G T A </b></pre>
+
+Simple as that!
+
+We will be running Trinity with only the necessary comands. These are:
+
+<pre style="color: silver; background: black;">--seqType		fasta, fastq, etc.
+--max-memory		Ideally a value of "250G" or greater
+--single		Read-type (could also be --paired)
+--min-contig-length	Minimum length assembled sequence must be to make it into the final genome
+--CPU			Number of cores
+--normailze_reads 	<a href="http://ivory.idyll.org/blog/trinity-in-silico-normalize.html">in silico normalization</a> (recommended for large datasets)</pre>
+
+Knowing this we can <i>assemble</i> our script! The script may be viewed via:
+
+<pre style="color: silver; background: black;">-bash-4.2$ cd ../../Assembly/Trinity/
+-bash-4.2$ ls
+<b>trinity_out_dir</b>  trinity.sh
+-bash-4.2$ nano trinity.sh
+
+#!/bin/bash
+#SBATCH --job-name=trinity
+#SBATCH -N 1
+#SBATCH -n 1
+#SBATCH -c 8
+#SBATCH --partition=general
+#SBATCH --mail-type=END
+#SBATCH --mail-user=your_email@uconn.edu
+#SBATCH --mem=50G
+#SBATCH -o trinity_%j.out
+#SBATCH -e trinity_%j.err
+
+module load Trinity
+
+#Trinity --seqType fq \
+        --max_memory 256G \
+        --single ../../QualityControl/Illumina/ambient.trimmed.fastq \
+        --min_contig_length 300 \
+        --CPU 16 \
+        --normalize_reads
+
+#Trinity --seqType fq \
+        --max_memory 256G \
+        --single ../../QualityControl/Illumina/cotreated.trimmed.fastq\
+        --min_contig_length 300 \
+        --CPU 16 \
+        --normalize_reads
+
+#Trinity --seqType fq \
+        --max_memory 256G \
+        --single ../../QualityControl/Illumina/elevated.trimmed.fastq \
+        --min_contig_length 300 \
+        --CPU 16 \
+        --normalize_reads
+                                                                                             [ Read 35 lines ]
+^G Get Help                       ^O WriteOut                       ^R Read File                      ^Y Prev Page                      ^K Cut Text                       ^C Cur Pos
+^X Exit                           ^J Justify                        ^W Where Is                       ^V Next Page                      ^U UnCut Text                     ^T To Spell</pre>
+
+We use "sbatch" to run the script. Trinity creates an output directory with all of the information determined. Let's have a look inside that directory:
+
+<pre style="color: silver; background: black;">-bash-4.2$ cd trinity_out_dir
+-bash-4.2$ ls
+chrysalis                        inchworm.kmer_count          jellyfish.kmers.fa.histo         pipeliner.35650.cmds    recursive_trinity.cmds.completed  single.fa.ok
+inchworm.K25.L25.DS.fa           insilico_read_normalization  partitioned_reads.files.list     read_partitions         recursive_trinity.cmds.ok         single.fa.read_count
+inchworm.K25.L25.DS.fa.finished  jellyfish.kmers.fa           partitioned_reads.files.list.ok  recursive_trinity.cmds  single.fa                         Trinity.fasta
+</pre>
+
+We have a lot of files! While we will not be going through them one-by-one using the 'head' command, we will be quickly covering more specifically how Trinity works, per the Trinity github:
+
+<i>Trinity combines three independent software modules: Inchworm, Chrysalis, and Butterfly, applied sequentially to process large volumes of RNA-seq reads. Trinity partitions the sequence data into many individual de Bruijn graphs, each representing the transcriptional complexity at a given gene or locus, and then processes each graph independently to extract full-length splicing isoforms and to tease apart transcripts derived from paralogous genes. Briefly, the process works like so:
+
+Inchworm assembles the RNA-seq data into the unique sequences of transcripts, often generating full-length transcripts for a dominant isoform, but then reports just the unique portions of alternatively spliced transcripts.
+
+Chrysalis clusters the Inchworm contigs into clusters and constructs complete de Bruijn graphs for each cluster. Each cluster represents the full transcriptonal complexity for a given gene (or sets of genes that share sequences in common). Chrysalis then partitions the full read set among these disjoint graphs.
+
+Butterfly then processes the individual graphs in parallel, tracing the paths that reads and pairs of reads take within the graph, ultimately reporting full-length transcripts for alternatively spliced isoforms, and teasing apart transcripts that corresponds to paralogous genes.</i>
+
+You may notice that there is output for a software called 'jellyfish'. The only file we must worry about is 'Trinity.fasta', which is our final assembled genome.
+
+<h2 id="Fourth_Point_Header">Determining and removing repeat modules in 'Trinity.fasta' by clustering</h2>
+
+Because we used RNA reads to sequence our genome, chances are that there are multiples of the same reads varying slightly which create multiples of the same assembled sequence. Under this assumption, we may also assume that most of the modules in our assembled genome are actually repeats, the results of the assembly of slightly different reads from the same gene. We want to remove the repeats of these modules to shorten the length of our genome and make for more efficient work in the future. We can do this by partitioning and clustering the genome, then taking only one module from each of the clusters. There is a very convenient software which performs all of this for us in the exact way just described: <a href="https://github.com/torognes/vsearch">vsearch. 
+
+vsearch has the following options:
+
+<pre style="color: silver; background: black;">vsearch --threads 8 --log LOGFile \
+	--cluster_fast combine.fasta \
+	--id 0.80 --centroids centroids.fasta --uc clusters.uc
