@@ -336,7 +336,7 @@ We scan the database using the 'hmmscan' command, which has the following option
 hmmscan \
 --cpu				Number of cores 
 --domtblout			Output file for <a href="https://www.ncbi.nlm.nih.gov/pmc/articles/PMC2788356/">domain architecture comparisons</a>, this is the output you will be using 
-/common/Pfam/Pfam-B.hmm 	No flag necessary, Pfam hmmer file
+/isg/shared/databases/Pfam/Pfam-B.hmm 	No flag necessary, Pfam hmmer file
 centroids.fasta.transdecoder_dir/longest_orfs.pep	No flag necessary, hypothetical amino acid sequence of ORFs</pre>
 
 It is absolutely vital that you place these arguments in the order in which they appear above. You do not want 'hmmscan' thinking your centroids are your database and your database are your centroids!
