@@ -260,7 +260,7 @@ You may notice that there is output for a software called 'jellyfish'. The only 
 
 <h2 id="Fourth_Point_Header">Determining and removing repeat modules in 'Trinity.fasta' by clustering</h2>
 
-Because we used RNA reads to sequence our genome, chances are that there are multiples of the same reads varying slightly which create multiples of the same assembled sequence. Under this assumption, we may also assume that most of the modules in our assembled genome are actually repeats, the results of the assembly of slightly different reads from the same gene. We want to remove the repeats of these modules to shorten the length of our genome and make for more efficient work in the future. We can do this by partitioning and clustering the genome, then taking only one module from each of the clusters. There is a very convenient software which performs all of this for us in the exact way just described: <a href="https://github.com/torognes/vsearch">vsearch. 
+Because we used RNA reads to sequence our genome, chances are that there are multiples of the same reads varying slightly which create multiples of the same assembled sequence. Under this assumption, we may also assume that most of the modules in our assembled genome are actually repeats, the results of the assembly of slightly different reads from the same gene. We want to remove the repeats of these modules to shorten the length of our genome and make for more efficient work in the future. We can do this by partitioning and clustering the genome, then taking only one module from each of the clusters. There is a very convenient software which performs all of this for us in the exact way just described: <a href="https://github.com/torognes/vsearch">vsearch</a>. 
 
 vsearch has the following options:
 
