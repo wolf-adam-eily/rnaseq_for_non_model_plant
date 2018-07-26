@@ -6,17 +6,16 @@ All steps have been provided for the UConn CBC Xanadu cluster here with appropr
 <div id="toc_container">
 <p class="toc_title">Contents</p>
 <ul class="toc_list">
-  <li><a href="#First_Point_Header">1 </a></li>
-<li><a href="#Second_Point_Header">2 Accessing the data using sra-toolkit</a></li>
+  <li><a href="#First_Point_Header">1 Overview</a></li>
+<li><a href="#Second_Point_Header">2 Familiarizing yourself with the raw reads</a></li>
 <li><a href="#Third_Point_Header">3 Quality control using sickle</a></li>
-<li><a href="#Fourth_Point_Header">4 Aligning reads to a genome using hisat2</a></li>
-<li><a href="#Fifth_Point_Header">5 Generating total read counts from alignment using htseq-count</a></li>
-<li><a href="#Sixth_Point_Header">6 Pairwise differential expression with counts in R with DESeq2</a></li>
-	<ol><li><a href="#types_of_plots">1 Common plots for differential expression analysis</a></li>
-		<li><a href="#using_deseq2">2 Using DESeq2</a></li></ol>
-<li><a href="#EnTAP">7 EnTAP: Functional Annotation for Genomes</a></li>
- <li><a href="#Integration">8 Integrating the DE Results with the Annotation Results</a></li>
-<li><a href="#Citation">Citations</a></li>
+<li><a href="#Fourth_Point_Header">4 Assembling the genome using RNA-Seq reads and Trinity</a></li>
+<li><a href="#Fifth_Point_Header">5 Identifying coding regions using transdecoder</a></li>
+<li><a href="#Sixth_Point_Header">6 Creating an index for the assembled genome using bowtie2</a></li>
+<li><a href="#Seventh_Point_Header>7 Aligning reads to the assembled genome using bowtie2</a></li>
+ <li><a href="#Eighth_Point_Header">8 Generating counts for differential expression analysis</a></li>
+ <li><a href="#Ninth_Point_Header">9 Differential expression analysis using gfold</a></li>
+ <li><a href="#Tenth_Point_Header">10 Final steps</a></li>
 </ul>
 </div>
 
@@ -265,6 +264,301 @@ Because we used RNA reads to sequence our genome, chances are that there are mul
 
 vsearch has the following options:
 
-<pre style="color: silver; background: black;">vsearch --threads 8 --log LOGFile \
-	--cluster_fast combine.fasta \
-	--id 0.80 --centroids centroids.fasta --uc clusters.uc
+<pre style="color: silver; background: black;">--threads		Number of cores 
+--log 			File to log progress
+--cluster_fast		Fasta file to cluster
+--id			Percent similarity needed to claim redundancy (0.00-1.00)
+--centroids		Output fasta file
+--uc			Output cluster information file</pre>
+
+Let's have a look at our vsearch script:
+
+<pre style="color: silver; background: black;">-bash-4.2$ cd ../../../Clustered/
+-bash-4.2$ ls
+centroids.fasta  clusters.uc  cluster_269085.err  cluster.sh  LOGFile
+-bash-4.2$ nano cluster.sh
+  GNU nano 2.3.1                                                       File: combine.sh                                                                                                                     
+
+#!/bin/bash
+#SBATCH --job-name=combine
+#SBATCH -N 1
+#SBATCH -n 1
+#SBATCH -c 8
+#SBATCH --partition=general
+#SBATCH --mail-type=END
+#SBATCH --mail-user=your_email@uconn.edu
+#SBATCH --mem=50G
+#SBATCH -o combine_%j.out
+#SBATCH -e combine_%j.err
+
+module load vsearch
+
+vsearch --threads 8 --log LOGFile \
+        --cluster_fast ../../Assembly/Trinity/trinity_output_dir/Trinity.fasta \
+        --id 0.80 --centroids centroids.fasta --uc clusters.uc
+                                                                                             [ Read 21 lines ]
+^G Get Help                       ^O WriteOut                       ^R Read File                      ^Y Prev Page                      ^K Cut Text                       ^C Cur Pos
+^X Exit                           ^J Justify                        ^W Where Is                       ^V Next Page                      ^U UnCut Text                     ^T To Spell
+</pre>
+
+</pre>
+
+We submit our script with the 'sbatch' command. 
+
+<h2 id="Fifth_Point_Header">Identifying coding regions using transdecoder</h2>
+Now that we have our reads assembled and clustered together into the single centroids file, we can use <a href="https://github.com/TransDecoder/TransDecoder/wiki">TransDecoder</a> to determine optimal open reading frames from the assembly (ORFs). Assembled RNA-Seq transcripts may have 5′ or 3′ UTR sequence attached and this can make it difficult to determine the CDS in non-model species. We will not be going into how TransDecoder works. However, should you click the link you'll be happy to see that they have a very simple one paragraph explanation telling you exactly that.
+
+Our first step is to determine all <a href="https://en.wikipedia.org/wiki/Open_reading_frame">open-reading-frames</a>. We can do this using the 'TransDecoder.LongOrfs' command. This command is quite simple, with one option, '-t', which is simply our centroid fasta! The command is therefore:
+
+<pre style="color: silver; background: black;">TransDecoder.LongOrfs -t ../Clustered/centroids.fasta</pre>
+
+By default it will identify ORFs that are at least 100 amino acids long. (you can change this by using -m parameter). It will produce a folder called centroids.fasta.transdecoder_dir, and will include all the temporary files in that directory. Let's have a look in this directory:
+
+<pre style="color: silver; background: black;">-bash-4.2$ cd ../CodingRegions/
+-bash-4.2$ ls
+centroids.fasta.transdecoder.bed  <b>centroids.fasta.transdecoder_dir</b>   centroids.fasta.transdecoder.pep  TransDecoder_269848.err  TransDecoder.sh
+centroids.fasta.transdecoder.cds  centroids.fasta.transdecoder.gff3  pfam.domtblout   
+-bash-4.2$ cd centroids.fasta.transdecoder_dir
+-bash-4.2$ ls
+centroids.fasta.transdecoder_dir/
+longest_orfs.pep
+longest_orfs.gff3
+longest_orfs.cds
+base_freqs.dat.ok
+base_freqs.dat</pre>
+
+The file names are quite self-explanatory, and we will live the thinking on these up to you.
+
+Next step is to, identify ORFs with homology to known proteins via blast or <a href="https://pfam.xfam.org/">pfam</a> searches. This will maximize the sensitivity for capturing the ORFs that have functional significance. We will be using the Pfram databases. Pfam stands for "Protein families", and is simply an absolutely massive database with mountains of searchable information on, well, you guessed it, protein families. We can <i>scan</i> the Pfam databases using the software <a href="http://hmmer.org/">hmmer</a>, a database homologous-sequence fetcher. The Pfam databases are much too large to install on a local computer. However, you may find them on Xanadu in the directory '/isg/shared/databases/Pfam/Pfam-B.hmm', which is an hmmer file (must be an hmmer file for hmmer to scan!).
+
+We scan the database using the 'hmmscan' command, which has the following options:
+<pre style="color: silver; background: black;">module load hmmer
+hmmscan \
+--cpu				Number of cores 
+--domtblout			Output file for <a href="https://www.ncbi.nlm.nih.gov/pmc/articles/PMC2788356/">domain architecture comparisons</a>, this is the output you will be using 
+/common/Pfam/Pfam-B.hmm 	No flag necessary, Pfam hmmer file
+centroids.fasta.transdecoder_dir/longest_orfs.pep	No flag necessary, hypothetical amino acid sequence of ORFs</pre>
+
+It is absolutely vital that you place these arguments in the order in which they appear above. You do not want 'hmmscan' thinking your centroids are your database and your database are your centroids!
+
+Our final command will look something like this:
+
+<pre style="color: silver; background: black;">hmmscan --cpu 8 --domtblout pfam.domtblout /common/Pfam/Pfam-B.hmm centroids.fasta.transdecoder_dir/longest_orfs.pep</pre>
+
+Lastly we use the 'TransDecoder.Predict' function to predict the coding regions we should expect in our genome using the output from hmmscan (the pfam.domtblout file).
+
+<pre style="color: silver; background: black;">TransDecoder.Predict -t ../Clustered/centroids.fasta --retain_pfam_hits pfam.domtblout --cpu 8</pre>
+ 
+ This will add output to our 'centroids.fasta.transdecoder_dir' directory. Which now looks like:
+ 
+ <pre style="color: silver; background: black;">-bash-4.2$ ls
+ base_freqs.dat     hexamer.scores.ok                      longest_orfs.cds.eclipsed_removed.gff3  longest_orfs.cds.scores.selected     longest_orfs.cds.top_longest_5000             longest_orfs.gff3
+base_freqs.dat.ok  longest_orfs.cds                       longest_orfs.cds.scores                 longest_orfs.cds.top_500_longest     longest_orfs.cds.top_longest_5000.nr80        longest_orfs.gff3.inx
+hexamer.scores     longest_orfs.cds.best_candidates.gff3  longest_orfs.cds.scores.ok              longest_orfs.cds.top_500_longest.ok  longest_orfs.cds.top_longest_5000.nr80.clstr  longest_orfs.pep
+</pre>
+
+Yet again, these filenames are quite self-explanatory and we will leave the thinking up to you. You may view the full script with the command:
+
+ <pre style="color: silver; background: black;">-bash-4.2$ nano ../TransDecoder.sh
+   GNU nano 2.3.1                                                    File: ../TransDecoder.sh                                                                                                                
+
+#!/bin/bash
+#SBATCH --job-name=TransDecoder
+#SBATCH -N 1
+#SBATCH -n 1
+#SBATCH -c 8
+#SBATCH --partition=general
+#SBATCH --mail-type=END
+#SBATCH --mail-user=your_email@uconn.edu
+#SBATCH --mem=50G
+#SBATCH -o TransDecoder_%j.out
+#SBATCH -e TransDecoder_%j.err
+
+module load hmmer
+module load TransDecoder
+
+TransDecoder.LongOrfs -t ../Clustered/centroids.fasta
+
+hmmscan --cpu 8 \
+        --domtblout pfam.domtblout /isg/shared/databases/Pfam/Pfam-B.hmm centroids.fasta.transdecoder_dir/longest_orfs.pep
+
+TransDecoder.Predict -t ../Clustered/centroids.fasta --retain_pfam_hits pfam.domtblout --cpu 8
+
+                                                                                             [ Read 22 lines ]
+^G Get Help                       ^O WriteOut                       ^R Read File                      ^Y Prev Page                      ^K Cut Text                       ^C Cur Pos
+^X Exit                           ^J Justify                        ^W Where Is                       ^V Next Page                      ^U UnCut Text                     ^T To Spell
+</pre>
+
+<h2 id="Sixth_Point_Header">Creating an index for the assembled genome using bowtie2</h2>
+
+It is expected by this point that you are quite familiar with the <a href="https://github.com/wolf-adam-eily/refseq_diffexp_funct_annotation_uconn#Fourth_Point_Header">purpose of indexing a genome</a>. We will be using Bowtie2 to index our assembled genome. We use the 'bowtie2-build' command, which has the following options:
+
+ <pre style="color: silver; background: black;">Usage: bowtie2-build [options] [reference_in] [bt2_index_base]  
+main arguments
+reference_in            comma-separated list of files with ref sequences
+bt2_index_base          base name for the index files to write
+
+Options
+--threads          # of threads, By default bowtie2-build is using only one thread. Increasing the number of threads will speed up the index building considerably in most cases.</pre>
+
+Therefore, our command will be:
+
+ <pre style="color: silver; background: black;">bowtie2-build ../CodingRegions/centroids.fasta.transdecoder.cds centroids_transdecoder_Index</pre>
+ 
+ The script for this may be found at 'UCHC/PublicShare/RNASeq_Workshop/RedSpruce/Index/index.sh".
+ 
+ <h2 id = "Seventh_Point_Header">Aligning reads to the assembled genome using bowtie2</h2>
+ 
+ Once the index has been created, we will use bowtie2 to align our three trimmed reads. The options for bowtie2 alignent are:
+ 
+  <pre style="color: silver; background: black;">Usage: bowtie2 [Options] -x [bt2_base_index] {reads / options}
+Main arguments:
+-x [bt2_base_index]     The basename of the index for the reference genome (i.e. with out the *.bt2 extension)
+-S                      Output file name of the SAM alignment
+
+Options:
+--threads               Number of processors</pre>
+
+Leaving us with a general command of:
+
+<pre style="color: silver; background: black;">bowtie2 --threads 8 -x ../Index/centroids_transdecoder_Index ../QualityControl/Illumina/elevated.trimmed.fastq -S elevated.sam</pre>
+
+You may view the script for alignment at '/UCHC/PublicShare/RNASeq_Workshop/RedSpruce/Align/Align.sh'.
+
+The script will output our files in the SAM format. We can convert these files to BAM with the following general command:
+
+<pre style="color: silver; background: black;">samtools view -uhS elevated.sam | samtools sort -o elevated_sorted</pre>
+
+Which has options:
+
+<pre style="color: silver; background: black;">Usage: samtools [command] [options] in.sam
+Command:
+view     prints all alignments in the specified input alignment file (in SAM, BAM, or CRAM format) to standard output in SAM format 
+
+Options:
+-h      Include the header in the output
+-S      Indicate the input was in SAM format
+-u      Output uncompressed BAM. This option saves time spent on compression/decompression and is thus preferred when the output is piped to another samtools command
+
+
+Usage: samtools [command] [-o out.bam]
+Command:
+sort    Sort alignments by leftmost coordinates
+
+-o      Write the final sorted output to FILE, rather than to standard output.</pre>
+
+You may view the SAM to BAM conversion script at 'sam2bam.sh'.
+
+ <h2 id = "Eighth_Point_Header">Generating counts for differential expression analysis</h2>
+ 
+Once it has been aligned, we will use the <a href="https://pachterlab.github.io/eXpress/overview.html">eXpress</a> software, to get the counts of differential expression.
+
+eXpress is used in the following manner:
+
+<pre style="color: silver; background: black;">Usage:  express [options] [target_seqs.fa] [hits.(sam/bam)]
+
+Required arguments:
+ target_seqs.fa     target sequence file in fasta format
+ hits.(sam/bam)     read alignment file in SAM or BAM format
+
+Options:
+-o [ --output-dir ] arg (=.)        write all output files to this directory</pre>
+
+Giving us a general command of:
+<pre style="color: silver; background: black;">express ../CodingRegions2/centroids.fasta.transdecoder.cds ../Align/elevated_sorted.bam -o elevated_express</pre>
+
+You may view the full script at '/UCHC/PublicShare/RNASeq_Workshop/RedSpruce/Count/express.sh'.
+
+ <h2 id = "Ninth_Point_Header">Differential expression analysis using gfold</h2>
+Before analyzing for the differential expression using the gfold package, we need to convert our counts to Gfold count format. The program expects, 5 data columns, which are “Gene Symbol”, “Gene Name”, “Read Count”, “Gene exon length”, “FPKM”. To do this we will read the results.xprs file and grab the columns which have the required fields, and will rewrite them to a new file, where it will be used as the input file for the Gfold program.
+
+<b>R</b>
+<pre style="color: silver; background: black;">require("plyr")
+
+express_file_1 <- data.frame(read.table("../Count/ambient_express/results.xprs",sep="\t", header = TRUE))
+express_file_2 <- data.frame(read.table("../Count/cotreated_express/results.xprs",sep="\t", header = TRUE))
+express_file_3 <- data.frame(read.table("../Count/elevated_express/results.xprs",sep="\t", header = TRUE))
+
+subset1 <- data.frame(express_file_1$target_id, express_file_1$target_id, express_file_1$tot_counts, express_file_1$length,express_file_1$fpkm)
+subset2 <- data.frame(express_file_2$target_id, express_file_2$target_id, express_file_2$tot_counts, express_file_2$length,express_file_2$fpkm)
+subset3 <- data.frame(express_file_3$target_id, express_file_3$target_id, express_file_3$tot_counts, express_file_3$length,express_file_3$fpkm)
+
+sorted1 <- subset1[order(express_file_1$target_id),]
+sorted2 <- subset2[order(express_file_2$target_id),]
+sorted3 <- subset3[order(express_file_3$target_id),]
+
+subset1 <- rename(subset1,c("express_file_1.target_id"="GeneSymbol","express_file_1.target_id.1"="GeneName","express_file_1.tot_counts"="Read Count","express_file_1.length" ="Gene_exon_length","express_file_1.fpkm"="RPKM"))
+subset2 <- rename(subset2,c("express_file_2.target_id"="GeneSymbol","express_file_2.target_id.1"="GeneName","express_file_2.tot_counts"="Read Count","express_file_2.length" ="Gene_exon_length","express_file_2.fpkm"="RPKM"))
+subset3 <- rename(subset3,c("express_file_3.target_id"="GeneSymbol","express_file_3.target_id.1"="GeneName","express_file_3.tot_counts"="Read Count","express_file_3.length" ="Gene_exon_length","express_file_3.fpkm"="RPKM"))
+
+write.table(sorted1, "ambient.read_cnt", sep = "\t", row.names = FALSE, col.names = FALSE, quote = FALSE)
+write.table(sorted2, "cotreated.read_cnt", sep = "\t", row.names = FALSE, col.names = FALSE, quote = FALSE)
+write.table(sorted3, "elevated.read_cnt", sep = "\t", row.names = FALSE, col.names = FALSE, quote = FALSE)</pre>
+
+We have created an R script (eXpress2gfold.R), which will be called, through eXpress2gfold.sh script. The script is located at '/UCHC/PublicShare/RNASeq_Workshop/RedSpruce/gfold/eXpress2gfold.sh'.
+The above script will produce the following gfold read count files as the output, which will be used in analyzing the differential expression:
+
+<pre style="color: silver; background: black;">-bash-4.2$ cd /UCHC/PublicShare/RNASeq_Workshop/RedSpruce/gfold/
+-bash-4.2$ ls
+ambient.read_cnt  cotreated.read_cnt  elevated.read_cnt</pre>
+
+<b>Differential expression using Gfold</b>
+
+Using the formatted count files, we will use Gfold to analyze the differential expression of the three samples. Gfold program is very useful when no replicates are available. Gfold generalizes the fold change by, considering the log fold change value for each gene, and assigns it as a Gfold value. It overcomes the short comping of the p-value, that measure the expression under different conditions, by measuring a relative expression value. It also overcomes the deficiency of low read counts. The following code finds the differentially expressed genes between the two groups of samples.
+
+<pre style="color: silver; background: black;">Usage: gfold [jobs] [options]
+Jobs:
+diff     Calculate GFOLD value and other statics. It accepts the count values as input. 
+
+Options explained:
+-s1       prefix for read_count of 1st group separated by comma.
+-s2       prefix for read_count of 2nd group separated by comma.
+-suf      suffix of count file
+-o        output file and for diff job, there will be two output files, where second will have .ext extension.
+-norm     normalization method. 'Count' stands for normalization by total number of mapped reads.</pre>
+
+Giving us the following commands:
+
+<pre style="color: silver; background: black;">gfold diff -s1 cotreated -s2 elevated -suf .read_cnt -o cotreated_VS_elevated.diff
+gfold diff -s1 cotreated -s2 ambient -suf .read_cnt -o cotreated_VS_ambient.diff
+gfold diff -s1 elevated -s2 ambient -suf .read_cnt -o elevated_VS_ambient.diff</pre>
+
+The prepared script for running Gfold is called, gfold.sh and it is located at '/UCHC/PublicShare/RNASeq_Workshop/RedSpruce/gfold/'. The job will create following files:
+
+<pre style="color: silver; background: black;">-bash-4.2$ ls /UCHC/PublicShare/RNASeq_Workshop/RedSpruce/gfold/
+cotreated_VS_ambient.diff	cotreated_VS_ambient.diff.ext 
+cotreated_VS_elevated.diff	cotreated_VS_elevated.diff.ext
+elevated_VS_ambient.diff	elevated_VS_ambient.diff.ext</pre>
+
+The first few lines of the output file of cotreated_VS_ambient.diff will look like:
+
+<pre style="color: silver; background: black;"># This file is generated by gfold V1.1.4 on Wed Jul 19 13:51:02 2017
+# Normalization constants :
+#    cotreated  52838582        1.0984
+#    elevated   55466744        1
+# The GFOLD value could be considered as a reliable log2 fold change.
+# It is positive/negative if the gene is up/down regulated.
+# A gene with zero GFOLD value should never be considered as 
+# differentially expressed. For a comprehensive description of 
+# GFOLD, please refer to the manual.
+#GeneSymbol   GeneName   GFOLD(0.01)  E-FDR   log2fdc     1stRPKM   2ndRPKM
+Gene.10065    Gene.10065   -0.15334      1     -0.2063     84.977    63.876
+Gene.10096    Gene.10096    2.46607      1      2.5501     25.495   129.567
+Gene.10097    Gene.10097    1.90102      1      2.072      27.710   101.209
+Gene.10138    Gene.10138    1.38044      1      1.4319     55.704   130.366
+Gene.10198    Gene.10198   -0.24752      1     -0.2928    121.876    86.279
+.
+.
+.
+Gene.10423   Gene.10423     2.83385      1      2.91202     26.908   175.725
+Gene.10440   Gene.10440     0            1     -0.05898     55.542    46.239
+Gene.10487   Gene.10487     2.39166      1      2.56462      7.236    37.198</pre>
+
+The output file contains 7 columns, namely “GeneSymbol”, “GeneName”, “GFOLD(0.01)”,
+“E-FDR”, “log2fdc”, “1stRPKM”, “2ndRPKM”. From that, we will focus on the GFOLD column for each gene. The GFOLD value, can be considered as a reliable log2 fold value indicating the change. The positive value indicate a up regulated and a negative value indicate a down regulated gene.
+
+<h2 id = "Tenth_Point_Header">Final steps</h2>
+
+While not included in this tutorial, the analysis is not quite finished yet. We still do not know what these genes are! Taking our differentially expressed genes we may annotate them through 'blast2go' or some other functional annotation software (like EnTap). While our organism may never be docile enough to be a model, we can at least contribute to its knowledge-base through our hard work and dedication in pipelines such as these.
+
+Congratulations on finishing your tutorial!
